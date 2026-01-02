@@ -1,0 +1,27 @@
+name: Pylint
+
+on: [push, pull_request]  # Run on push and PRs
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.13"]  # adjust as needed
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pylint
+          if [ -f API/requirements.txt ]; then pip install -r API/requirements.txt; fi
+
+      - name: Run Pylint on API folder
+        run: |
+          pylint API/**/*.py
