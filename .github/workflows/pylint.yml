@@ -20,8 +20,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pylint
-          if [ -f API/requirements.txt ]; then pip install -r API/requirements.txt; fi
-
+          if (Test-Path "API/requirements.txt") {
+              pip install -r API/requirements.txt
+          }
       - name: Run Pylint on API folder
         env:
           PYTHONPATH: API   # <-- Add this line
