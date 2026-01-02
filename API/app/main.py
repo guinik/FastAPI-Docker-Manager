@@ -3,8 +3,6 @@ from app.api import containers
 from app.api import images
 
 from app.services.image_service import ImageService
-
-from app.services.container_service import ContainerService
 from app.core.database import database
 
 

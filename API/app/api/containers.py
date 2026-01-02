@@ -1,7 +1,6 @@
-from fastapi import APIRouter, status, Query, BackgroundTasks, HTTPException
 from uuid import UUID
 from typing import List
-import asyncio
+from fastapi import APIRouter, status, Query, BackgroundTasks, HTTPException
 from app.services.container_service import ContainerService
 from app.services.image_service import ImageService
 from app.schemas.container import (
@@ -11,13 +10,7 @@ from app.schemas.container import (
 
 container_service = ContainerService()
 image_service = ImageService()
-    
-
-
 router = APIRouter(prefix="/containers", tags=["containers"])
-
-
-
 @router.post("", response_model=ContainerResponse, status_code=202)
 async def create_container(
     payload: ContainerCreateRequest,
@@ -61,7 +54,7 @@ async def run_container_from_image(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("", response_model=list[ContainerResponse])
+@router.get("", response_model=List[ContainerResponse])
 async def list_containers():
     return await container_service.list_containers()
 

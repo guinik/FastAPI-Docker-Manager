@@ -38,7 +38,6 @@ class ContainerService:
             self._containers[container_id] = container
         return container
 
-    
     async def deploy_container(self, container_id: UUID):
         async with self._lock:
             container = self._containers[container_id]
@@ -66,9 +65,6 @@ class ContainerService:
             async with self._lock:
                 container.status = "failed"
             print(f"Failed to deploy container {container_id}: {e}")
-
-
-
 
     async def list_containers(self):
         async with self._lock:
