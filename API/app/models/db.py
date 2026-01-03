@@ -1,7 +1,6 @@
 from sqlalchemy import (
     Column, String, Integer, DateTime, ForeignKey, Float
 )
-from sqlalchemy.dialects.sqlite import BLOB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from uuid import uuid4
@@ -13,7 +12,7 @@ def gen_uuid():
 
 class UploadedImageDB(Base):
     __tablename__ = "uploaded_images"
-
+    
     id = Column(String, primary_key=True, default=gen_uuid)
     filename = Column(String, nullable=False)
     path = Column(String, nullable=False)

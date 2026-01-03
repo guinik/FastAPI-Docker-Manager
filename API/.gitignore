@@ -32,3 +32,7 @@ migrations/
 # OS files
 .DS_Store
 Thumbs.db
+
+
+# Storage files
+API/storage/*

@@ -3,6 +3,7 @@ from app.api import containers
 from app.api import images
 
 from app.services.image_service import ImageService
+from app.services.container_service import ContainerService
 from app.core.database import database
 
 
@@ -13,6 +14,7 @@ app.include_router(containers.router)
 app.include_router(images.router)
 # Service instance
 image_service = ImageService()
+container_service = ContainerService()
 
 
 # ---------- Startup / Shutdown ----------
@@ -21,8 +23,8 @@ image_service = ImageService()
 async def startup_event():
     # Connect to DB
     await database.connect()
-
     # Load images and docker images from DB
+    container_service.start_reconciliation_loop(interval=10.0)
     await image_service.load_from_db()
     print("[STARTUP] ImageService initialized from DB")
 
