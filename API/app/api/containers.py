@@ -37,7 +37,6 @@ async def create_container(payload: ContainerCreateRequest):
 
 @router.get("", response_model=List[ContainerResponse])
 async def list_containers():
-    print(await container_service.list_containers())
     return await container_service.list_containers()
 
 
