@@ -24,6 +24,8 @@ jobs:
           pip install pytest pytest-asyncio
 
       - name: Run tests
+        run: |
+          cd API
+          pytest -v tests
         env:
-          PYTHONPATH: API
-        run: pytest -v API/tests
+          PYTHONPATH: .
