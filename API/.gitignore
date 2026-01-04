@@ -36,3 +36,5 @@ Thumbs.db
 
 # Storage files
 API/storage/*
+
+API/storage/images/*

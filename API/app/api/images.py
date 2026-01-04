@@ -4,8 +4,18 @@ from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException
 from app.services.image_service import ImageService
 from app.schemas.image import UploadedImageResponse, DockerImageResponse
 
+from app.repositories.container_repository import SQLContainerRepository
+from app.repositories.image_repository import SQLDockerImageRepository
+from app.repositories.uploaded_image_repository import SQLUploadedImageRepository
+
+from app.services.docker_runtime import DockerSDKRuntime
+
+docker_runtime = DockerSDKRuntime()
+image_service = ImageService(SQLUploadedImageRepository(), SQLDockerImageRepository(), docker_runtime)
+
+
+
 router = APIRouter(prefix="/images", tags=["images"])
-image_service = ImageService()
 # ---------------------------
 # Upload a new Docker image
 # ---------------------------

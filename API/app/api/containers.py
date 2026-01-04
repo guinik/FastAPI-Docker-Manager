@@ -8,8 +8,18 @@ from app.schemas.container import (
     ContainerResponse,
 )
 
-container_service = ContainerService()
-image_service = ImageService()
+from app.repositories.container_repository import SQLContainerRepository
+from app.repositories.image_repository import SQLDockerImageRepository
+from app.repositories.uploaded_image_repository import SQLUploadedImageRepository
+
+from app.services.docker_runtime import DockerSDKRuntime
+
+docker_runtime = DockerSDKRuntime()
+container_service = ContainerService(SQLContainerRepository(), SQLDockerImageRepository(), docker_runtime)
+image_service = ImageService(SQLUploadedImageRepository(), SQLDockerImageRepository(), docker_runtime)
+
+
+
 router = APIRouter(prefix="/containers", tags=["containers"])
 @router.post("", 
              response_model=ContainerResponse, 
