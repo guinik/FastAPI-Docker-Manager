@@ -1,6 +1,6 @@
 from pathlib import Path
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, ConfigDict
 
 class Settings(BaseSettings):
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
@@ -17,5 +17,6 @@ class Settings(BaseSettings):
 
     MAX_IMAGE_SIZE_MB: int = 1024  # safety
 
-    class Config:
-        env_file = ".env"
+    model_config = ConfigDict(
+        env_file=".env"
+    )

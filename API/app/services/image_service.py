@@ -1,63 +1,45 @@
-# app/services/image_service.py
 import shutil
-import asyncio
-import docker
 from uuid import UUID, uuid4
 from datetime import datetime
-from pathlib import Path
 from typing import Dict, List, Optional
 
-from sqlalchemy import select, insert, update
-
-from app.models.image import UploadedImage, DockerImage
-from app.core.database import database 
-from app.models.db import UploadedImageDB, DockerImageDB 
+from app.domain.image import UploadedImage, DockerImage
+from app.domain.ports import UploadedImageRepository, DockerImageRepository, DockerRuntime
 from app.core.config import Settings
 
 
 class ImageService:
-    def __init__(self):
-        self.docker_client = docker.from_env()
-        self.settings = Settings()
+    def __init__(
+        self,
+        uploaded_repo: UploadedImageRepository,
+        docker_repo: DockerImageRepository,
+        docker_runtime: DockerRuntime,
+        settings: Settings | None = None,
+    ):
+        self.uploaded_repo = uploaded_repo
+        self.docker_repo = docker_repo
+        self.docker_runtime = docker_runtime
+        self.settings = settings or Settings()
         self.settings.IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-        # In-memory caches (optional, for speed)
+        # Optional in-memory caches
         self.uploaded_images: Dict[UUID, UploadedImage] = {}
         self.docker_images: Dict[UUID, DockerImage] = {}
 
     # -------------------------------
-    # Load everything from the DB on startup
+    # Load everything from repositories
     # -------------------------------
-    async def load_from_db(self):
-        # Uploaded images
-        rows = await database.fetch_all(select(UploadedImageDB))
-        for row in rows:
-            img = UploadedImage(
-                id=UUID(row["id"]),
-                filename=row["filename"],
-                path=row["path"],
-                status=row["status"],
-                created_at=row["created_at"],
-            )
-            self.uploaded_images[img.id] = img
+    async def load_from_repos(self):
+        uploaded_list = await self.uploaded_repo.list()
+        docker_list = await self.docker_repo.list()
 
-        # Docker images
-        rows = await database.fetch_all(select(DockerImageDB))
-        for row in rows:
-            docker_img = DockerImage(
-                id=UUID(row["id"]),
-                name=row["name"],
-                tag=row["tag"],
-                docker_id=row["docker_id"],
-                status=row["status"],
-                uploaded_image_id=UUID(row["uploaded_image_id"])
-            )
-            self.docker_images[docker_img.id] = docker_img
+        self.uploaded_images = {img.id: img for img in uploaded_list}
+        self.docker_images = {img.id: img for img in docker_list}
 
         print(f"[DB LOAD] {len(self.uploaded_images)} uploaded images, {len(self.docker_images)} Docker images loaded")
 
     # -------------------------------
-    # Upload a new image
+    # Register a new uploaded image
     # -------------------------------
     async def register_upload(self, file) -> UploadedImage:
         file.file.seek(0, 2)
@@ -66,29 +48,21 @@ class ImageService:
             raise ValueError(f"File too large ({size_mb:.2f} MB)")
         file.file.seek(0)
 
-        image_id = str(uuid4())
+        image_id = uuid4()
         image_path = self.settings.IMAGE_STORAGE_DIR / f"{image_id}_{file.filename}"
 
         with open(image_path, "wb") as f:
             shutil.copyfileobj(file.file, f)
 
-        # Insert into DB
-        query = insert(UploadedImageDB).values(
+        uploaded = UploadedImage(
             id=image_id,
             filename=file.filename,
             path=str(image_path),
             status="pending",
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
         )
-        await database.execute(query)
 
-        uploaded = UploadedImage(
-            id=UUID(image_id),
-            filename=file.filename,
-            path=str(image_path),
-            status="pending",
-            created_at=datetime.utcnow()
-        )
+        await self.uploaded_repo.create(uploaded)
         self.uploaded_images[uploaded.id] = uploaded
         return uploaded
 
@@ -96,81 +70,41 @@ class ImageService:
     # Load uploaded image into Docker
     # -------------------------------
     async def load_image(self, uploaded_image_id: UUID) -> DockerImage:
-        uploaded_image_id = str(uploaded_image_id)
-        row = await database.fetch_one(select(UploadedImageDB).where(UploadedImageDB.id == uploaded_image_id))
-        if not row:
+        uploaded = await self.uploaded_repo.get(uploaded_image_id)
+        if not uploaded:
             raise ValueError("Uploaded image not found")
 
-        try:
-            with open(row["path"], "rb") as f:
-                loaded_images = await asyncio.to_thread(self.docker_client.images.load, f.read())
+        # Load into Docker
+        docker_id = await self.docker_runtime.load_image(uploaded.path)
 
-            docker_obj = loaded_images[0]
-            name, tag = docker_obj.tags[0].split(":") if docker_obj.tags else (row["filename"], "latest")
+        # Create DockerImage record
+        docker_img = DockerImage(
+            id=uuid4(),
+            name=uploaded.filename,
+            tag="latest",
+            docker_id=docker_id,
+            status="loaded",
+            uploaded_image_id=uploaded.id,
+        )
 
-            # Upsert DockerImage in DB
-            existing = await database.fetch_one(
-                select(DockerImageDB).where(DockerImageDB.uploaded_image_id == uploaded_image_id)
-            )
+        # Save in repository
+        await self.docker_repo.create(docker_img)
 
-            if existing:
-                query = (
-                    update(DockerImageDB)
-                    .where(DockerImageDB.uploaded_image_id == uploaded_image_id)
-                    .values(name=name, tag=tag, docker_id=docker_obj.id, status="loaded")
-                )
-                await database.execute(query)
-                docker_id = existing["id"]
-            else:
-                docker_id = str(uuid4())
-                query = insert(DockerImageDB).values(
-                    id=docker_id,
-                    uploaded_image_id=uploaded_image_id,
-                    name=name,
-                    tag=tag,
-                    docker_id=docker_obj.id,
-                    status="loaded"
-                )
-                await database.execute(query)
+        # Update uploaded image status
+        uploaded.status = "loaded"
+        await self.uploaded_repo.update(uploaded)
 
-            # Update uploaded image status
-            await database.execute(
-                update(UploadedImageDB).where(UploadedImageDB.id == uploaded_image_id).values(status="loaded")
-            )
+        # Update in-memory caches
+        self.uploaded_images[uploaded.id] = uploaded
+        self.docker_images[docker_img.id] = docker_img
 
-            docker_img = DockerImage(
-                id=UUID(docker_id),
-                name=name,
-                tag=tag,
-                docker_id=docker_obj.id,
-                status="loaded",
-                uploaded_image_id=UUID(uploaded_image_id)
-            )
-            self.docker_images[docker_img.id] = docker_img
-            return docker_img
-
-        except Exception as e:
-            await database.execute(
-                update(UploadedImageDB).where(UploadedImageDB.id == uploaded_image_id).values(status="failed")
-            )
-            raise e
+        return docker_img
 
     # -------------------------------
-    # List uploaded images
+    # List / Get Uploaded Images
     # -------------------------------
     async def list_uploaded_images(self, latest_only: bool = False) -> List[UploadedImage]:
-        rows = await database.fetch_all(select(UploadedImageDB))
-        images = [
-            UploadedImage(
-                id=UUID(r["id"]),
-                filename=r["filename"],
-                path=r["path"],
-                status=r["status"],
-                created_at=r["created_at"]
-            )
-            for r in rows
-        ]
-
+        images = await self.uploaded_repo.list()
         if latest_only:
             latest_map: Dict[str, UploadedImage] = {}
             for img in images:
@@ -178,80 +112,30 @@ class ImageService:
                 if not current or img.created_at > current.created_at:
                     latest_map[img.filename] = img
             return list(latest_map.values())
-
         return images
 
-    # -------------------------------
-    # List Docker images
-    # -------------------------------
-    async def list_docker_images(self) -> List[DockerImage]:
-        rows = await database.fetch_all(select(DockerImageDB))
-        return [
-            DockerImage(
-                id=UUID(r["id"]),
-                name=r["name"],
-                tag=r["tag"],
-                docker_id=r["docker_id"],
-                status=r["status"],
-                uploaded_image_id=UUID(r["uploaded_image_id"])
-            )
-            for r in rows
-        ]
-
-    # -------------------------------
-    # Get single uploaded image
-    # -------------------------------
     async def get_uploaded_image(self, image_id: UUID) -> UploadedImage:
-        
-        image_id = str(image_id)
-        
-        row = await database.fetch_one(select(UploadedImageDB).where(UploadedImageDB.id == image_id))
-        if not row:
+        uploaded = await self.uploaded_repo.get(image_id)
+        if not uploaded:
             raise ValueError("Uploaded image not found")
-        return UploadedImage(
-            id=UUID(row["id"]),
-            filename=row["filename"],
-            path=row["path"],
-            status=row["status"],
-            created_at=row["created_at"]
-        )
+        return uploaded
 
-    # -------------------------------
-    # Get latest uploaded image by name
-    # -------------------------------
     async def get_uploaded_image_by_name(self, filename: str, latest: bool = True) -> Optional[UploadedImage]:
-        rows = await database.fetch_all(select(UploadedImageDB).where(UploadedImageDB.filename == filename))
-        if not rows:
+        images = [img for img in await self.uploaded_repo.list() if img.filename == filename]
+        if not images:
             return None
-
-        images = [
-            UploadedImage(
-                id=UUID(r["id"]),
-                filename=r["filename"],
-                path=r["path"],
-                status=r["status"],
-                created_at=row["created_at"]
-            )
-            for r in rows
-        ]
-
         if latest:
             return max(images, key=lambda x: x.created_at)
         return images[0]
 
     # -------------------------------
-    # Get single Docker image
+    # List / Get Docker Images
     # -------------------------------
+    async def list_docker_images(self) -> List[DockerImage]:
+        return await self.docker_repo.list()
+
     async def get_docker_image(self, image_id: UUID) -> DockerImage:
-        image_id = str(image_id)
-        row = await database.fetch_one(select(DockerImageDB).where(DockerImageDB.id == image_id))
-        if not row:
+        docker_img = await self.docker_repo.get(image_id)
+        if not docker_img:
             raise ValueError("Docker image not found")
-        return DockerImage(
-            id=UUID(row["id"]),
-            name=row["name"],
-            tag=row["tag"],
-            docker_id=row["docker_id"],
-            status=row["status"],
-            uploaded_image_id=UUID(row["uploaded_image_id"])
-        )
+        return docker_img

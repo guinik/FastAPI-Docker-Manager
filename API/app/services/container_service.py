@@ -2,21 +2,24 @@
 import asyncio
 from uuid import UUID, uuid4
 from typing import List
-from sqlalchemy import select, insert, update
 from fastapi import HTTPException
 
-from app.models.container import Container
-from app.models.db import ContainerDB, DockerImageDB
-from app.core.database import database
-import docker
-from docker.errors import NotFound
+from app.domain.container import Container
+from app.domain.ports import ContainerRepository, DockerImageRepository, DockerRuntime
+
 
 class ContainerService:
-    def __init__(self):
-        self.docker_client = docker.from_env()
+    def __init__(
+        self,
+        container_repository: ContainerRepository,
+        docker_image_repo: DockerImageRepository,
+        docker_runtime: DockerRuntime,
+    ):
+        self.container_repository = container_repository
+        self.docker_image_repo = docker_image_repo
+        self.docker_runtime = docker_runtime
         self._lock = asyncio.Lock()
         self._reconcile_task: asyncio.Task | None = None
-
 
     # -------------------------------
     # CRUD
@@ -24,44 +27,28 @@ class ContainerService:
     async def create_container(
         self,
         *,
-        image: str | None,
-        image_id: UUID | None,
-        cpu_limit: float,
-        memory_limit_mb: int,
-        internal_port: int,
-        host_port: int | None,
-        auto_start: bool,
+        image: str | None = None,
+        image_id: UUID | None = None,
+        cpu_limit: float = 0.1,
+        memory_limit_mb: int = 128,
+        internal_port: int = 80,
+        host_port: int | None = None,
+        auto_start: bool = True,
     ) -> Container:
         """
         Create a container from either a raw image string or an uploaded image UUID.
         """
         if image_id:
-            docker_row = await database.fetch_one(
-                select(DockerImageDB).where(DockerImageDB.id == str(image_id))
-            )
-            if not docker_row:
+            image_container = await self.docker_image_repo.get(image_id)
+            if not image_container:
                 raise HTTPException(404, "Docker image not found")
-
-            image_ref = f"{docker_row['name']}:{docker_row['tag']}"
+            image_ref = image_container.docker_id
         else:
-            image_ref = image  # raw string
+            image_ref = image  # raw image string
 
-        container_id = str(uuid4())
-
-        await database.execute(
-            insert(ContainerDB).values(
-                id=container_id,
-                docker_image_id=str(image_id) if image_id else None,
-                image=image_ref,
-                status="pending",
-                cpu_limit=cpu_limit,
-                memory_limit_mb=memory_limit_mb,
-                internal_port=internal_port,
-            )
-        )
-
+        container_id = uuid4()
         container = Container(
-            id=UUID(container_id),
+            id=container_id,
             docker_image_id=image_id,
             image=image_ref,
             status="pending",
@@ -70,286 +57,138 @@ class ContainerService:
             internal_port=internal_port,
         )
 
+        await self.container_repository.create(container)
+
         if auto_start:
             await self._run_new_container(container, host_port)
 
         return container
 
     async def list_containers(self) -> List[Container]:
-        rows = await database.fetch_all(select(ContainerDB))
-        return [
-            Container(
-                id=UUID(r["id"]),
-                docker_image_id=UUID(r["docker_image_id"]) if r["docker_image_id"] else None,
-                image=r["image"],
-                status=r["status"],
-                cpu_limit=r["cpu_limit"],
-                memory_limit_mb=r["memory_limit_mb"],
-                internal_port=r["internal_port"],
-                exposed_port=r["exposed_port"],
-                docker_id=r["docker_id"],
-            )
-            for r in rows
-        ]
+        return await self.container_repository.list()
 
     async def get_container(self, container_id: UUID) -> Container:
-        row = await database.fetch_one(
-            select(ContainerDB).where(ContainerDB.id == str(container_id))
-        )
-        if not row:
+        container = await self.container_repository.get(container_id)
+        if not container:
             raise HTTPException(404, "Container not found")
-        return Container(
-            id=UUID(row["id"]),
-            docker_image_id=UUID(row["docker_image_id"]) if row["docker_image_id"] else None,
-            image=row["image"],
-            status=row["status"],
-            cpu_limit=row["cpu_limit"],
-            memory_limit_mb=row["memory_limit_mb"],
-            internal_port=row["internal_port"],
-            exposed_port=row["exposed_port"],
-            docker_id=row["docker_id"],
-        )
+        return container
 
     async def delete_container(self, container_id: UUID) -> None:
         container = await self.get_container(container_id)
         if container.status == "running":
             raise HTTPException(409, "Container is running. Stop it before deleting.")
 
-        # Remove from Docker if exists
         if container.docker_id:
-            try:
-                await asyncio.to_thread(
-                    self.docker_client.containers.get(container.docker_id).remove
-                )
-            except Exception:
-                pass  # ignore Docker removal errors
+            await self.docker_runtime.remove(container.docker_id)
 
-        # Delete from DB
-        await database.execute(
-            ContainerDB.__table__.delete().where(ContainerDB.id == str(container_id))
-        )
+        await self.container_repository.delete(container_id)
 
     # -------------------------------
     # Docker lifecycle
     # -------------------------------
-    async def _run_new_container(
-        self,
-        container: Container,
-        host_port: int | None,
-    ):
+    async def _run_new_container(self, container: Container, host_port: int | None):
         try:
-            docker_container = await asyncio.to_thread(
-                self.docker_client.containers.run,
-                container.image,
-                detach=True,
-                ports={f"{container.internal_port}/tcp": host_port}
-                if host_port
-                else {f"{container.internal_port}/tcp": None},
-                mem_limit=f"{max(container.memory_limit_mb, 6)}m",
-            )
-                    
-
-            await asyncio.to_thread(docker_container.reload)
-
-            port_binding = docker_container.attrs["NetworkSettings"]["Ports"].get(
-                f"{container.internal_port}/tcp"
-            )
-            print("Docker container created:", docker_container.id)
-            exposed_port = int(port_binding[0]["HostPort"]) if port_binding else None
-            await database.execute(
-                update(ContainerDB)
-                .where(ContainerDB.id == str(container.id))
-                .values(
-                    status="running",
-                    docker_id=docker_container.id,
-                    exposed_port=exposed_port,
-                )
+            docker_id, exposed_port = await self.docker_runtime.run(
+                image=container.image,
+                internal_port=container.internal_port,
+                host_port=host_port,
+                memory_limit_mb=container.memory_limit_mb,
             )
 
-            container.status = "running"
-            container.docker_id = docker_container.id
+            container.docker_id = docker_id
             container.exposed_port = exposed_port
+            container.status = "running"
+
+            await self.container_repository.update(
+                container.id,
+                status="running",
+                docker_id=docker_id,
+                exposed_port=exposed_port,
+            )
 
         except Exception as exc:
-            await database.execute(
-                update(ContainerDB)
-                .where(ContainerDB.id == str(container.id))
-                .values(status="failed")
-            )
             container.status = "failed"
+            await self.container_repository.update(container.id, status="failed")
             print(f"[RUN ERROR] {container.id}: {exc}")
 
-
-    async def start_container(
-        self,
-        container_id: UUID
-    ) -> Container:
-        """
-        Start a container that already exists in Docker.
-        Fails if the container has no Docker runtime (docker_id is None).
-        """
+    async def start_container(self, container_id: UUID) -> Container:
         container = await self.get_container(container_id)
-
         if container.status == "running":
             return container
-        print(container)
         if not container.docker_id:
-            raise HTTPException(
-                409, "Cannot start container: it has no existing Docker Container instance."
-            )
-        
-        await self._start_existing_container(container)
-        return container
+            raise HTTPException(409, "Cannot start container: no Docker runtime")
 
+        exposed_port = await self.docker_runtime.start(container.docker_id)
+        container.status = "running"
+        container.exposed_port = exposed_port
+
+        await self.container_repository.update(
+            container.id, status="running", exposed_port=exposed_port
+        )
+        return container
 
     async def stop_container(self, container_id: UUID) -> Container:
         container = await self.get_container(container_id)
-
         if container.status != "running":
-            return container  # idempotent: nothing to do
+            return container
 
         if not container.docker_id:
             raise HTTPException(409, "Container has no Docker runtime")
 
-        try:
-            docker_container = await asyncio.to_thread(
-                self.docker_client.containers.get,
-                container.docker_id,
-            )
-
-            await asyncio.to_thread(docker_container.stop)
-
-            await database.execute(
-                update(ContainerDB)
-                .where(ContainerDB.id == str(container.id))
-                .values(status="stopped")
-            )
-
-            container.status = "stopped"
-
-        except docker.errors.NotFound:
-            await database.execute(
-                update(ContainerDB)
-                .where(ContainerDB.id == str(container.id))
-                .values(status="stopped", docker_id=None)
-            )
-            container.status = "stopped"
-            container.docker_id = None
-
-        except Exception as exc:
-            raise HTTPException(500, f"Failed to stop container: {exc}")
-
+        await self.docker_runtime.stop(container.docker_id)
+        container.status = "stopped"
+        await self.container_repository.update(container.id, status="stopped")
         return container
-    
-
-    # --------------------------------------------------------
-    #
-    #       RECONCILITATION MECHANISM
-    #
-    # --------------------------------------------------------
-    def start_reconciliation_loop(self, interval: float = 10.0):
-        """
-        Start background reconciliation loop that ensures DB matches Docker state.
-        """
-        if self._reconcile_task is None or self._reconcile_task.done():
-            self._reconcile_task = asyncio.create_task(self._reconcile_loop(interval))
 
     # -------------------------------
-    # Reconciliation method
+    # Reconciliation
     # -------------------------------
     async def reconcile_running_containers(self):
-        rows = await database.fetch_all(
-            select(ContainerDB).where(ContainerDB.status == "running")
-        )
-
-        for r in rows:
-            container_id = r["id"]
-            docker_id = r["docker_id"]
-
-            if not docker_id:
-                await database.execute(
-                    update(ContainerDB)
-                    .where(ContainerDB.id == container_id)
-                    .values(status="failed")
-                )
+        containers = await self.container_repository.list()
+        for container in containers:
+            if container.status != "running" or not container.docker_id:
                 continue
 
             try:
-                container = await asyncio.to_thread(
-                    self.docker_client.containers.get, docker_id
-                )
-                if container.status != "running":
-                    await database.execute(
-                        update(ContainerDB)
-                        .where(ContainerDB.id == container_id)
-                        .values(status="stopped", exposed_port = None)
+                # Fetch Docker container info
+                docker_status = await self.docker_runtime.get_status(container.docker_id)
+
+                if docker_status is None:
+                    # Container disappeared
+                    container.status = "failed"
+                    container.docker_id = None
+                    container.exposed_port = None
+                    await self.container_repository.update(
+                        container.id, status="failed", docker_id=None, exposed_port=None
                     )
-                    print(f"[RECONCILE] Container {container_id} exists but stopped")
+                    print(f"[RECONCILE] Container {container.id} no longer exists")
 
-            except docker.errors.NotFound:
-                await database.execute(
-                    update(ContainerDB)
-                    .where(ContainerDB.id == container_id)
-                    .values(status="failed", docker_id=None)
-                )
-                print(f"[RECONCILE] Container {container_id} no longer exists, docker_id cleared")
+                elif docker_status != "running":
+                    # Container exists but not running
+                    container.status = "stopped"
+                    container.exposed_port = None
+                    await self.container_repository.update(
+                        container.id, status="stopped", exposed_port=None
+                    )
+                    print(f"[RECONCILE] Container {container.id} exists but stopped")
 
-        #-----------------------------------------------------------------------------
-        #
-        #  Internal methods
-        #
-        #-----------------------------------------------------------------------------
-    async def _start_existing_container(
-        self,
-        container: Container
-        ):
-        """
-        Resume an existing Docker container. Only called if container.docker_id exists.
-        """
-        try:
-            docker_container = await asyncio.to_thread(
-                self.docker_client.containers.get,
-                container.docker_id
-            )
+                else:
+                    # Still running, optionally refresh exposed port
+                    exposed_port = await self.docker_runtime.get_exposed_port(container.docker_id, container.internal_port)
+                    container.exposed_port = exposed_port
+                    await self.container_repository.update(
+                        container.id, exposed_port=exposed_port
+                    )
 
-            await asyncio.to_thread(docker_container.start)
-            await asyncio.to_thread(docker_container.reload)
+            except Exception as e:
+                print(f"[RECONCILE ERROR] Container {container.id}: {e}")
 
-            # Update exposed port (if port mapping exists)
-            port_binding = docker_container.attrs["NetworkSettings"]["Ports"].get(
-                f"{container.internal_port}/tcp"
-            )
-            exposed_port = int(port_binding[0]["HostPort"]) if port_binding else None
 
-            # Update DB
-            await database.execute(
-                update(ContainerDB)
-                .where(ContainerDB.id == str(container.id))
-                .values(
-                    status="running",
-                    exposed_port=exposed_port,
-                )
-            )
-
-            # Update in-memory container
-            container.status = "running"
-            container.exposed_port = exposed_port
-
-        except NotFound:
-            raise HTTPException(
-                404, "Docker container not found. It may have been removed."
-            )
-
-        except Exception as exc:
-            raise HTTPException(500, f"Failed to start container: {exc}")
-            
+    def start_reconciliation_loop(self, interval: float = 10.0):
+        if not hasattr(self, "_reconcile_task") or self._reconcile_task is None or self._reconcile_task.done():
+            self._reconcile_task = asyncio.create_task(self._reconcile_loop(interval))
 
     async def _reconcile_loop(self, interval: float):
-        """
-            Internal loop for reconcilation, interval is the time of sleeping between reconciliations. 
-            To be thought if this design is the best, or do it per queried.
-        
-        """
         while True:
             try:
                 await self.reconcile_running_containers()
