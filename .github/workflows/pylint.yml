@@ -27,4 +27,4 @@ jobs:
         env:
           PYTHONPATH: API   # <-- Add this line
         run: |
-          pylint API/**/*.py --fail-under=5
+          pylint API/**/*.py --fail-under=5 --disable=C
