@@ -24,9 +24,10 @@ class DockerImageDB(Base):
 
     id = Column(String, primary_key=True, default=gen_uuid)
     uploaded_image_id = Column(String, ForeignKey("uploaded_images.id"), unique=True)
-    name = Column(String, nullable=False)
-    tag = Column(String, default="latest")
+    name = Column(String, nullable=True)
+    tag = Column(String, default="latest", nullable=True)
     docker_id = Column(String, nullable=True)
+    replaced_by = Column(String, nullable=True)
     status = Column(String, default="loaded")  # loaded / failed
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

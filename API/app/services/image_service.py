@@ -1,11 +1,14 @@
 import shutil
 from uuid import UUID, uuid4
 from datetime import datetime
-from typing import Dict, List, Optional
-
+from typing import Dict, List, Optional, DefaultDict
+from pathlib import Path
 from app.domain.image import UploadedImage, DockerImage
 from app.domain.ports import UploadedImageRepository, DockerImageRepository, DockerRuntime
 from app.core.config import Settings
+import asyncio
+import aiofiles
+
 
 
 class ImageService:
@@ -21,6 +24,7 @@ class ImageService:
         self.docker_runtime = docker_runtime
         self.settings = settings or Settings()
         self.settings.IMAGE_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        self._locks: Dict[str, asyncio.Lock] = DefaultDict(asyncio.Lock)
 
         # Optional in-memory caches
         self.uploaded_images: Dict[UUID, UploadedImage] = {}
@@ -51,19 +55,29 @@ class ImageService:
         image_id = uuid4()
         image_path = self.settings.IMAGE_STORAGE_DIR / f"{image_id}_{file.filename}"
 
-        with open(image_path, "wb") as f:
-            shutil.copyfileobj(file.file, f)
-
+        # Set initial status to pending
         uploaded = UploadedImage(
             id=image_id,
-            filename=file.filename,
+            filename=Path(file.filename).stem,
             path=str(image_path),
             status="pending",
             created_at=datetime.utcnow(),
         )
-
         await self.uploaded_repo.create(uploaded)
         self.uploaded_images[uploaded.id] = uploaded
+
+        # Async write to disk
+        async with aiofiles.open(image_path, "wb") as out_file:
+            while True:
+                chunk = await file.read(1024 * 1024)  # 1MB chunks
+                if not chunk:
+                    break
+                await out_file.write(chunk)
+
+        # Mark as uploaded
+        uploaded.status = "uploaded"
+        await self.uploaded_repo.update(uploaded)
+
         return uploaded
 
     # -------------------------------
@@ -71,34 +85,44 @@ class ImageService:
     # -------------------------------
     async def load_image(self, uploaded_image_id: UUID) -> DockerImage:
         uploaded = await self.uploaded_repo.get(uploaded_image_id)
+        
         if not uploaded:
             raise ValueError("Uploaded image not found")
 
-        # Load into Docker
-        docker_id = await self.docker_runtime.load_image(uploaded.path)
+        lock = self._locks[f"{uploaded.filename}:latest"]
+        async with lock:
+            # Transition uploaded image state
+            await self.uploaded_repo.update(uploaded)
 
-        # Create DockerImage record
-        docker_img = DockerImage(
-            id=uuid4(),
-            name=uploaded.filename,
-            tag="latest",
-            docker_id=docker_id,
-            status="loaded",
-            uploaded_image_id=uploaded.id,
-        )
+            name = uploaded.filename
+            tag = "latest"
+            existing = await self.docker_repo.get_active_by_name_tag(name, tag)
+            try:
+                docker_id = await self.docker_runtime.load_image(uploaded.path)
 
-        # Save in repository
-        await self.docker_repo.create(docker_img)
+                if existing:
+                    existing.status = "replaced"
+                    existing.replaced_by = docker_id
+                    existing.name = None
+                    existing.tag = None
+                    await self.docker_repo.update(existing)
 
-        # Update uploaded image status
-        uploaded.status = "loaded"
-        await self.uploaded_repo.update(uploaded)
+                docker_img = DockerImage(
+                    name=name,
+                    tag=tag,
+                    docker_id=docker_id,
+                    status="loaded",
+                    uploaded_image_id=uploaded.id,
+                )
 
-        # Update in-memory caches
-        self.uploaded_images[uploaded.id] = uploaded
-        self.docker_images[docker_img.id] = docker_img
+                await self.docker_repo.create(docker_img)
+                self.docker_images[docker_img.id] = docker_img
+                self.uploaded_images[uploaded.id] = uploaded
 
-        return docker_img
+                return docker_img
+
+            except Exception:
+                raise
 
     # -------------------------------
     # List / Get Uploaded Images
@@ -139,3 +163,7 @@ class ImageService:
         if not docker_img:
             raise ValueError("Docker image not found")
         return docker_img
+    
+
+
+    
