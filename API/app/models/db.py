@@ -23,7 +23,7 @@ class DockerImageDB(Base):
     __tablename__ = "docker_images"
 
     id = Column(String, primary_key=True, default=gen_uuid)
-    uploaded_image_id = Column(String, ForeignKey("uploaded_images.id"), unique=True)
+    uploaded_image_id = Column(String, ForeignKey("uploaded_images.id"))
     name = Column(String, nullable=True)
     tag = Column(String, default="latest", nullable=True)
     docker_id = Column(String, nullable=True)
