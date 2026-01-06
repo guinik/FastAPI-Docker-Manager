@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.services.image_service import ImageService
 from app.domain.image import UploadedImage
 from app.core.config import Settings
+import io
 
 settings = Settings()
 
