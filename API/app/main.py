@@ -11,6 +11,7 @@ from app.repositories.image_repository import SQLDockerImageRepository
 from app.repositories.uploaded_image_repository import SQLUploadedImageRepository
 
 from app.services.docker_runtime import DockerSDKRuntime
+from fastapi.middleware.cors import CORSMiddleware
 
 docker_runtime = DockerSDKRuntime()
 container_service = ContainerService(SQLContainerRepository(), SQLDockerImageRepository(), docker_runtime)
@@ -18,6 +19,18 @@ image_service = ImageService(SQLUploadedImageRepository(), SQLDockerImageReposit
 
 
 app = FastAPI(title="Mini AWS – Control Plane")
+
+origins = [
+    "http://localhost:5173"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,  # can also be ["*"] for development
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(containers.router)
 
