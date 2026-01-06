@@ -23,7 +23,7 @@ async def test_image_service_load_image():
         id=uploaded_id,
         filename="test.tar",
         path="/fake/path/test.tar",
-        status="pending",
+        status="uploaded",
         created_at=None,
     )
     uploaded_repo.get = AsyncMock(return_value=uploaded_image)
@@ -36,7 +36,7 @@ async def test_image_service_load_image():
 
     # Assertions
     assert docker_image.docker_id == "docker-id-123"
-    assert uploaded_image.status == "loaded"
+    assert uploaded_image.status == "uploaded"
 
     uploaded_repo.get.assert_awaited_once_with(uploaded_id)
     docker_runtime.load_image.assert_awaited_once_with("/fake/path/test.tar")
