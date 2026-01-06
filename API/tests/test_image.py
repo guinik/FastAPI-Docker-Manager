@@ -64,7 +64,7 @@ async def test_register_upload_creates_uploaded_image(tmp_path):
         async def read(self, n=-1):
             return self._io.read(n)
 
-    file = AsyncFile(fake_file_path)
+    file = AsyncFile(content = 1024, filename = fake_file_path)
 
     uploaded = await service.register_upload(file)
 
