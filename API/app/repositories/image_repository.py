@@ -16,6 +16,7 @@ class SQLDockerImageRepository(DockerImageRepository):
                 tag=docker_image.tag,
                 docker_id=docker_image.docker_id,
                 status=docker_image.status,
+                replaced_by = docker_image.replaced_by 
             )
         )
 
@@ -32,7 +33,8 @@ class SQLDockerImageRepository(DockerImageRepository):
             tag=row["tag"],
             docker_id=row["docker_id"],
             status=row["status"],
-            created_at=row["created_at"]
+            created_at=row["created_at"],
+            replaced_by = row["replaced_by"]
         )
 
     async def list(self) -> list[DockerImage]:
@@ -45,7 +47,8 @@ class SQLDockerImageRepository(DockerImageRepository):
                 tag=r["tag"],
                 docker_id=r["docker_id"],
                 status=r["status"],
-                created_at=r["created_at"]
+                created_at=r["created_at"],
+                replaced_by = r["replaced_by"]
             )
             for r in rows
         ]
@@ -58,6 +61,31 @@ class SQLDockerImageRepository(DockerImageRepository):
                 name=docker_image.name,
                 tag=docker_image.tag,
                 docker_id=docker_image.docker_id,
-                status=docker_image.status
+                status=docker_image.status,
+                replaced_by=docker_image.replaced_by,
             )
+        )
+    async def get_active_by_name_tag(
+        self, name: str, tag: str
+    ) -> DockerImage | None:
+        row = await database.fetch_one(
+            select(DockerImageDB)
+            .where(
+                DockerImageDB.name == name,
+                DockerImageDB.tag == tag,
+                DockerImageDB.status == "loaded",
+            )
+        )
+        if not row:
+            return None
+
+        return DockerImage(
+            id=UUID(row["id"]),
+            uploaded_image_id=UUID(row["uploaded_image_id"]) if row["uploaded_image_id"] else None,
+            name=row["name"],
+            tag=row["tag"],
+            docker_id=row["docker_id"],
+            status=row["status"],
+            replaced_by=row["replaced_by"],
+            created_at=row["created_at"],
         )

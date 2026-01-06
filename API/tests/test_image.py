@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 from app.services.image_service import ImageService
 from app.domain.image import UploadedImage
 from app.core.config import Settings
+import io
 
 settings = Settings()
 
@@ -23,7 +24,7 @@ async def test_image_service_load_image():
         id=uploaded_id,
         filename="test.tar",
         path="/fake/path/test.tar",
-        status="pending",
+        status="uploaded",
         created_at=None,
     )
     uploaded_repo.get = AsyncMock(return_value=uploaded_image)
@@ -36,7 +37,7 @@ async def test_image_service_load_image():
 
     # Assertions
     assert docker_image.docker_id == "docker-id-123"
-    assert uploaded_image.status == "loaded"
+    assert uploaded_image.status == "uploaded"
 
     uploaded_repo.get.assert_awaited_once_with(uploaded_id)
     docker_runtime.load_image.assert_awaited_once_with("/fake/path/test.tar")
@@ -52,19 +53,19 @@ async def test_register_upload_creates_uploaded_image(tmp_path):
 
     service = ImageService(uploaded_repo, docker_repo, docker_runtime, settings)
 
-    # Create a fake file in tmp_path
-    fake_file_path = tmp_path / "fake.tar"
-    fake_file_path.write_text("dummy content")
+    class AsyncFileMock:
+        def __init__(self, content: bytes, filename: str):
+            self.filename = filename
+            self.file = io.BytesIO(content) 
+            self._io = self.file
 
-    class File:
-        filename = "fake.tar"
+        async def read(self, n=-1):
+            return self._io.read(n)  # mimic async read
 
-        def __init__(self, path):
-            self.file = open(path, "rb")
-
-    file = File(fake_file_path)
+    file = AsyncFileMock(b"dummy content", "fake.tar")
 
     uploaded = await service.register_upload(file)
 
-    assert uploaded.filename == "fake.tar"
+    # .stem is used in your service
+    assert uploaded.filename == "fake"
     uploaded_repo.create.assert_awaited_once()

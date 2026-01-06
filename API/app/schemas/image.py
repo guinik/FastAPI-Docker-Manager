@@ -9,7 +9,7 @@ from typing import Literal, Optional
 class UploadedImageResponse(BaseModel):
     id: UUID
     filename: str
-    status: Literal["pending", "loaded", "failed"]
+    status: Literal["pending", "uploaded", "failed"]
 
     class Config:
         json_schema_extra = {
@@ -26,10 +26,11 @@ class UploadedImageResponse(BaseModel):
 # ---------------------------
 class DockerImageResponse(BaseModel):
     id: UUID
-    name: str
-    tag: str
+    uploaded_image_id : UUID
+    name: Optional[str] = None
+    tag: Optional[str] = None
     docker_id: Optional[str] = None
-    status: Literal["pending", "loaded", "failed"]
+    status: Literal["pending", "loaded", "replaced", "failed"]
 
     class Config:
         json_schema_extra = {

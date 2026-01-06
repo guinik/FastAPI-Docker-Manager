@@ -72,6 +72,7 @@ async def list_docker_images():
     return [
         DockerImageResponse(
             id=img.id,
+            uploaded_image_id = img.uploaded_image_id,
             name=img.name,
             tag=img.tag,
             docker_id=img.docker_id,
@@ -110,9 +111,49 @@ async def get_docker_image(image_id: UUID):
 
     return DockerImageResponse(
         id=img.id,
+    
+        uploaded_image_id = img.uploaded_image_id,
         name=img.name,
         tag=img.tag,
         docker_id=img.docker_id,
         status=img.status
     )
+
+
+
+# ---------------------------
+# Load uploaded image into Docker
+# ---------------------------
+@router.post(
+    "/uploaded/{image_id}/load",
+    status_code=202,
+    summary="Load uploaded image into Docker",
+    description="Loads an already uploaded Docker image tarball into the Docker daemon."
+)
+async def load_uploaded_image(
+    image_id: UUID,
+    background_tasks: BackgroundTasks
+):
+    try:
+        uploaded_image = await image_service.get_uploaded_image(image_id)
+
+        if uploaded_image.status == "loaded":
+            raise HTTPException(
+                status_code=409,
+                detail="Image is already loaded into Docker"
+            )
+
+        # Run load asynchronously
+        background_tasks.add_task(image_service.load_image, image_id)
+
+        return {
+            "id": image_id,
+            "status": "loading"
+        }
+
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Uploaded image not found")
+
+
+
 

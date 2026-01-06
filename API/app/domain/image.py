@@ -17,6 +17,7 @@ class DockerImage:
     name: str = ""
     tag: str = "latest"
     docker_id: str | None = None
-    status: str = "loaded"  # loaded / failed
+    status: str = "loaded"  # loaded / replaced / failed
+    replaced_by: str | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
     uploaded_image_id: UUID | None = None  # ← add this
