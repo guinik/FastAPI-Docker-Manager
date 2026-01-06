@@ -28,17 +28,6 @@ interface ContainerForm {
   auto_start: boolean;
 }
 
-
-interface ContainerResponse {
-  id: string;          // UUID as string
-  image: string | null;
-  status: "pending" | "running" | "stopped" | "failed";
-  exposed_port: number | null;
-  created_at: string;  // ISO datetime string
-}
-
-
-
 export default function DashboardPage() {
   const qc = useQueryClient();
 
