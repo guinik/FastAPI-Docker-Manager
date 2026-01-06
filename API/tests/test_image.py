@@ -56,13 +56,15 @@ async def test_register_upload_creates_uploaded_image(tmp_path):
     fake_file_path = tmp_path / "fake.tar"
     fake_file_path.write_text("dummy content")
 
-    class File:
-        filename = "fake.tar"
+    class AsyncFile:
+        def __init__(self, content: bytes, filename: str):
+            self.filename = filename
+            self._io = io.BytesIO(content)
 
-        def __init__(self, path):
-            self.file = open(path, "rb")
+        async def read(self, n=-1):
+            return self._io.read(n)
 
-    file = File(fake_file_path)
+    file = AsyncFile(fake_file_path)
 
     uploaded = await service.register_upload(file)
 
