@@ -53,21 +53,19 @@ async def test_register_upload_creates_uploaded_image(tmp_path):
 
     service = ImageService(uploaded_repo, docker_repo, docker_runtime, settings)
 
-    # Create a fake file in tmp_path
-    fake_file_path = tmp_path / "fake.tar"
-    fake_file_path.write_text("dummy content")
-
-    class AsyncFile:
+    class AsyncFileMock:
         def __init__(self, content: bytes, filename: str):
             self.filename = filename
-            self._io = io.BytesIO(content)
+            self.file = io.BytesIO(content) 
+            self._io = self.file
 
         async def read(self, n=-1):
-            return self._io.read(n)
+            return self._io.read(n)  # mimic async read
 
-    file = AsyncFile(content = 1024, filename = fake_file_path)
+    file = AsyncFileMock(b"dummy content", "fake.tar")
 
     uploaded = await service.register_upload(file)
 
-    assert uploaded.filename == "fake.tar"
+    # .stem is used in your service
+    assert uploaded.filename == "fake"
     uploaded_repo.create.assert_awaited_once()
