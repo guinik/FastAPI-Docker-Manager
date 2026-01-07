@@ -1,4 +1,3 @@
-import shutil
 from uuid import UUID, uuid4
 from datetime import datetime
 from typing import Dict, List, Optional, DefaultDict
@@ -8,7 +7,6 @@ from app.domain.ports import UploadedImageRepository, DockerImageRepository, Doc
 from app.core.config import Settings
 import asyncio
 import aiofiles
-
 
 
 class ImageService:
@@ -83,46 +81,41 @@ class ImageService:
     # -------------------------------
     # Load uploaded image into Docker
     # -------------------------------
-    async def load_image(self, uploaded_image_id: UUID) -> DockerImage:
+    async def load_new_image(self, uploaded_image_id: UUID) -> DockerImage:
+        # Get uploaded image
         uploaded = await self.uploaded_repo.get(uploaded_image_id)
-        
         if not uploaded:
             raise ValueError("Uploaded image not found")
 
-        lock = self._locks[f"{uploaded.filename}:latest"]
+        name = uploaded.filename
+        tag = "latest"
+
+        lock = self._locks[f"{name}:{tag}"]
         async with lock:
-            # Transition uploaded image state
-            await self.uploaded_repo.update(uploaded)
+            # Load the image into Docker
+            docker_id = await self.docker_runtime.load_image(uploaded.path)
 
-            name = uploaded.filename
-            tag = "latest"
-            existing = await self.docker_repo.get_active_by_name_tag(name, tag)
-            try:
-                docker_id = await self.docker_runtime.load_image(uploaded.path)
+            # Deactivate previous active images with the same name/tag
+            docker_images = await self.docker_repo.list()
+            for img in docker_images:
+                if img.name == name and img.tag == tag and img.is_active:
+                    img.is_active = False
+                    await self.docker_repo.update(img)
 
-                if existing:
-                    existing.status = "replaced"
-                    existing.replaced_by = docker_id
-                    existing.name = None
-                    existing.tag = None
-                    await self.docker_repo.update(existing)
+            # Create the new DockerImage and mark as active
+            docker_img = DockerImage(
+                id=uuid4(),
+                docker_id=docker_id,
+                uploaded_image_id=uploaded.id,
+                name=name,
+                tag=tag,
+                created_at=datetime.utcnow(),
+                is_active=True,
+            )
+            await self.docker_repo.create(docker_img)
+            self.docker_images[docker_img.id] = docker_img
 
-                docker_img = DockerImage(
-                    name=name,
-                    tag=tag,
-                    docker_id=docker_id,
-                    status="loaded",
-                    uploaded_image_id=uploaded.id,
-                )
-
-                await self.docker_repo.create(docker_img)
-                self.docker_images[docker_img.id] = docker_img
-                self.uploaded_images[uploaded.id] = uploaded
-
-                return docker_img
-
-            except Exception:
-                raise
+            return docker_img
 
     # -------------------------------
     # List / Get Uploaded Images
@@ -151,19 +144,56 @@ class ImageService:
         if latest:
             return max(images, key=lambda x: x.created_at)
         return images[0]
-
+    
     # -------------------------------
-    # List / Get Docker Images
+    # List all Docker images
     # -------------------------------
     async def list_docker_images(self) -> List[DockerImage]:
-        return await self.docker_repo.list()
+        docker_images = await self.docker_repo.list()
+        return docker_images
 
+    # -------------------------------
+    # Get single Docker image by ID
+    # -------------------------------
     async def get_docker_image(self, image_id: UUID) -> DockerImage:
         docker_img = await self.docker_repo.get(image_id)
         if not docker_img:
             raise ValueError("Docker image not found")
         return docker_img
-    
+        
+
+    async def load_or_activate_docker_image(self, uploaded_image_id: UUID) -> DockerImage:
+    # Get uploaded image
+        uploaded = await self.get_uploaded_image(uploaded_image_id)
+
+        lock = self._locks[str(uploaded.id)]
+        async with lock:
+            # Check for existing DockerImage
+            docker_images = await self.list_docker_images()
+            existing = next(
+                (img for img in docker_images if img.uploaded_image_id == uploaded.id),
+                None
+            )
+
+            if existing and existing.is_active:
+                # Already loaded and active in Docker, nothing to do
+                return existing
+
+            # Load into Docker
+            docker_id = await self.docker_runtime.load_image(uploaded.path)
+
+            if existing:
+                # Update existing record to be active
+                existing.docker_id = docker_id
+                existing.is_active = True
+                existing.name = uploaded.filename
+                existing.tag = "latest"
+                await self.docker_repo.update(existing)
+                return existing
+            else:
+                # Use your existing `load_new_image` function
+                docker_img = await self.load_new_image(uploaded_image_id)
+                return docker_img
 
 
     

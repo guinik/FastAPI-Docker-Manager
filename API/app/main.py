@@ -14,8 +14,12 @@ from app.services.docker_runtime import DockerSDKRuntime
 from fastapi.middleware.cors import CORSMiddleware
 
 docker_runtime = DockerSDKRuntime()
-container_service = ContainerService(SQLContainerRepository(), SQLDockerImageRepository(), docker_runtime)
-image_service = ImageService(SQLUploadedImageRepository(), SQLDockerImageRepository(), docker_runtime)
+container_service = ContainerService(container_repository=SQLContainerRepository(), 
+                                    docker_image_repo=SQLDockerImageRepository(), 
+                                    docker_runtime=docker_runtime)
+image_service = ImageService(uploaded_repo=SQLUploadedImageRepository(),
+                            docker_repo=SQLDockerImageRepository(),
+                            docker_runtime=docker_runtime)
 
 
 app = FastAPI(title="Mini AWS – Control Plane")

@@ -16,7 +16,13 @@ from app.services.docker_runtime import DockerSDKRuntime
 
 docker_runtime = DockerSDKRuntime()
 container_service = ContainerService(SQLContainerRepository(), SQLDockerImageRepository(), docker_runtime)
-image_service = ImageService(SQLUploadedImageRepository(), SQLDockerImageRepository(), docker_runtime)
+
+
+
+
+image_service = ImageService(uploaded_repo=SQLUploadedImageRepository(),
+                            docker_repo=SQLDockerImageRepository(),
+                            docker_runtime=docker_runtime)
 
 
 

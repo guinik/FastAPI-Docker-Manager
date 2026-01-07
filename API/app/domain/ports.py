@@ -77,13 +77,9 @@ class DockerImageRepository(Protocol):
 
     async def create(self, docker_image: DockerImage) -> None:
         pass
-
+    
     async def update(self, docker_image: DockerImage) -> None:
         pass
-
-    async def get_active_by_name_tag(self, name: str, tag: str) -> DockerImage | None:
-        pass
-
 
 class UploadedImageRepository(Protocol):
     async def get(self, uploaded_image_id: UUID) -> UploadedImage | None:

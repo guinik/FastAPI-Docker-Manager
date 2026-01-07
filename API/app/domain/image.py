@@ -13,11 +13,10 @@ class UploadedImage:
     
 @dataclass
 class DockerImage:
-    id: UUID = field(default_factory=uuid4)
-    name: str = ""
-    tag: str = "latest"
-    docker_id: str | None = None
-    status: str = "loaded"  # loaded / replaced / failed
-    replaced_by: str | None = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    uploaded_image_id: UUID | None = None  # ← add this
+    id: UUID
+    docker_id: str              # sha256:...
+    uploaded_image_id: UUID
+    name : str
+    tag : str
+    created_at: datetime
+    is_active : bool
