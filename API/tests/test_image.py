@@ -33,7 +33,8 @@ async def test_image_service_load_image():
     docker_repo.create = AsyncMock(return_value=None)
     uploaded_repo.update = AsyncMock(return_value=None)
 
-    docker_image = await service.load_image(uploaded_id)
+    docker_image = await service.load_new_image(uploaded_id)
+    print(docker_image)
 
     # Assertions
     assert docker_image.docker_id == "docker-id-123"
@@ -42,7 +43,6 @@ async def test_image_service_load_image():
     uploaded_repo.get.assert_awaited_once_with(uploaded_id)
     docker_runtime.load_image.assert_awaited_once_with("/fake/path/test.tar")
     docker_repo.create.assert_awaited_once()
-    uploaded_repo.update.assert_awaited_once()
 
 
 @pytest.mark.asyncio

@@ -1,5 +1,5 @@
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional, DefaultDict
 from pathlib import Path
 from app.domain.image import UploadedImage, DockerImage
@@ -59,7 +59,7 @@ class ImageService:
             filename=Path(file.filename).stem,
             path=str(image_path),
             status="pending",
-            created_at=datetime.utcnow(),
+            created_at= datetime.now(timezone.utc),
         )
         await self.uploaded_repo.create(uploaded)
         self.uploaded_images[uploaded.id] = uploaded
@@ -109,7 +109,7 @@ class ImageService:
                 uploaded_image_id=uploaded.id,
                 name=name,
                 tag=tag,
-                created_at=datetime.utcnow(),
+                created_at= datetime.now(timezone.utc),
                 is_active=True,
             )
             await self.docker_repo.create(docker_img)
@@ -162,7 +162,7 @@ class ImageService:
         return docker_img
         
 
-    async def load_or_activate_docker_image(self, uploaded_image_id: UUID) -> DockerImage:
+    async def load_or_activate_docker_image_uploaded(self, uploaded_image_id: UUID) -> DockerImage:
     # Get uploaded image
         uploaded = await self.get_uploaded_image(uploaded_image_id)
 
@@ -189,11 +189,33 @@ class ImageService:
                 existing.name = uploaded.filename
                 existing.tag = "latest"
                 await self.docker_repo.update(existing)
+                await self._deactivate_other_images(existing.name, existing.tag, 
+                                                    except_id=existing.id)
                 return existing
             else:
                 # Use your existing `load_new_image` function
                 docker_img = await self.load_new_image(uploaded_image_id)
                 return docker_img
+            
+    async def load_or_activate_docker_image_by_docker_id(self, docker_id: UUID) -> DockerImage:
+        # Get uploaded image
+        uploaded = await self.get_docker_image(docker_id)
+        print(uploaded)
+        return await self.load_or_activate_docker_image_uploaded(uploaded.uploaded_image_id)
+
+
+    async def _deactivate_other_images(self, name: str, tag: str, except_id: UUID | None = None):
+        """ 
+        Set is_active = False for all DockerImages with the same name/tag,
+        except the one with except_id.
+        """
+        docker_images = await self.docker_repo.list()
+        print(docker_images)
+        for img in docker_images:
+            if img.name == name and img.tag == tag and img.is_active:
+                if except_id is None or img.id != except_id:
+                    img.is_active = False
+                    await self.docker_repo.update(img)
 
 
     

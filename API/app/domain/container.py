@@ -1,5 +1,5 @@
-from uuid import uuid4, UUID
-from datetime import datetime
+from uuid import UUID
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 @dataclass
 class Container:
@@ -12,4 +12,4 @@ class Container:
     exposed_port: int | None = None
     docker_id: str | None = None
     docker_image_id : str | None = None
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda : datetime.now(timezone.utc))

@@ -127,23 +127,17 @@ async def get_docker_image(image_id: UUID):
 # Load uploaded image into Docker
 # ---------------------------
 @router.post(
-    "/uploaded/{image_id}/load",
+    "/uploaded/{uploaded_img_id}/load",
     status_code=202,
     summary="Load uploaded image into Docker",
     description="Loads an already uploaded Docker image tarball into the Docker daemon. If the image is already loaded and active, it returns the existing Docker image."
 )
 async def load_uploaded_image(
-    image_id: UUID,
-    background_tasks: BackgroundTasks
+    uploaded_img_id: UUID
 ):
     try:
         # Use the new idempotent service function
-        docker_img = await image_service.load_or_activate_docker_image(image_id)
-
-        # Schedule Docker loading in background if not already active
-        if not docker_img.is_active:
-            background_tasks.add_task(image_service.load_new_image, image_id)
-
+        docker_img = await image_service.load_or_activate_docker_image_uploaded(uploaded_img_id)
         return DockerImageResponse(
             id=docker_img.id,
             uploaded_image_id=docker_img.uploaded_image_id,
@@ -157,5 +151,31 @@ async def load_uploaded_image(
         raise HTTPException(status_code=404, detail="Uploaded image not found")
 
 
+# ---------------------------
+# Load uploaded image into Docker
+# ---------------------------
+@router.post(
+    "/docker/{docker_id}/load",
+    status_code=202,
+    summary="Load uploaded image into Docker",
+    description="Loads an already uploaded Docker image tarball into the Docker daemon. If the image is already loaded and active, it returns the existing Docker image."
+)
+async def load_docker_image(
+    docker_id: UUID
+):
+    try:
+        # Use the new idempotent service function
+        docker_img = await image_service.load_or_activate_docker_image_by_docker_id(docker_id)
+        return DockerImageResponse(
+            id=docker_img.id,
+            uploaded_image_id=docker_img.uploaded_image_id,
+            name=docker_img.name,
+            tag=docker_img.tag,
+            docker_id=docker_img.docker_id,
+            is_active=docker_img.is_active
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Uploaded image not found")
 
 

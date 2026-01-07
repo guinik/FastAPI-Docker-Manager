@@ -43,6 +43,9 @@ class ContainerService:
             if not image_container:
                 raise HTTPException(404, "Docker image not found")
             image_ref = image_container.docker_id
+
+            if image_container.is_active == False:
+                raise HTTPException(status_code=409, detail="Docker image is not active")
         else:
             image_ref = image  # raw image string
 
@@ -82,6 +85,24 @@ class ContainerService:
             await self.docker_runtime.remove(container.docker_id)
 
         await self.container_repository.delete(container_id)
+
+    async def get_container_logs(self, container_id: UUID, tail: int = 100) -> str:
+        """
+        Fetch logs from a running or stopped container.
+        :param container_id: UUID of the container
+        :param tail: number of last lines to fetch
+        :return: logs as a string
+        """
+        container = await self.get_container(container_id)
+
+        if not container.docker_id:
+            raise HTTPException(409, "Container has no Docker runtime ID")
+
+        try:
+            logs = await self.docker_runtime.logs(container.docker_id, tail=tail)
+            return logs
+        except Exception as exc:
+            raise HTTPException(500, f"Failed to fetch logs: {exc}")
 
     # -------------------------------
     # Docker lifecycle

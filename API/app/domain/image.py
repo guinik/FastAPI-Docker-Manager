@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 @dataclass
@@ -9,7 +9,7 @@ class UploadedImage:
     filename: str = ""
     path: str = ""          # saved .tar path
     status: str = "pending" # pending / loaded / failed
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=datetime.now(timezone.utc))
     
 @dataclass
 class DockerImage:

@@ -65,3 +65,12 @@ async def delete_container(container_id: UUID):
 @router.post("/{container_id}/start", response_model=ContainerResponse)
 async def start_container_endpoint(container_id: UUID):
     return await container_service.start_container(container_id)
+
+
+@router.get("/{container_id}/logs")
+async def get_container_logs(container_id: UUID, tail: int = Query(100, ge=1, le=1000, description="Number of last log lines to fetch")):
+    """
+    Fetch logs from a container.
+    """
+    logs = await container_service.get_container_logs(container_id, tail=tail)
+    return {"container_id": container_id, "logs": logs}

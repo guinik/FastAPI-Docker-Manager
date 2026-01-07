@@ -27,5 +27,6 @@ class ContainerResponse(BaseModel):
     id: UUID
     image: str
     status: Literal["pending", "running", "stopped", "failed"]
+    docker_image_id : UUID
     exposed_port: Optional[int]
     created_at: datetime

@@ -53,6 +53,9 @@ class DockerRuntime(Protocol):
         """Check if a container exists in Docker."""
         ...
 
+    async def logs(self, container_id: str, tail: int = 100) -> str:
+        """Get the logs from a container"""
+        ...
     # -------------------------------
     # Images
     # -------------------------------
