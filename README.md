@@ -56,6 +56,8 @@ Small showcase project built with **FastAPI** to manage Docker images and contai
 
 ### Backend (FastAPI)
 
+> **Prerequisite:** A Docker engine must be running on your machine for the API to manage containers and images.
+
 ```bash
 cd API
 python -m venv .venv
