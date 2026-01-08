@@ -1,6 +1,6 @@
 # app/repositories/uploaded_image_repository.py
 from uuid import UUID
-from sqlalchemy import select, insert, update
+from sqlalchemy import select, insert, update, delete
 from app.core.database import database
 from app.models.db import UploadedImageDB
 from app.domain.image import UploadedImage
@@ -57,3 +57,10 @@ class SQLUploadedImageRepository(UploadedImageRepository):
                 created_at=uploaded_image.created_at,
             )
         )
+
+    async def delete(self, uploaded_image_id: UUID) -> None:
+        """
+        Delete an uploaded image from the DB by its UUID.
+        """
+        query = delete(UploadedImageDB).where(UploadedImageDB.id == str(uploaded_image_id))
+        await database.execute(query)

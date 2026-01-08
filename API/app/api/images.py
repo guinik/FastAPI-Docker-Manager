@@ -177,5 +177,32 @@ async def load_docker_image(
 
     except ValueError:
         raise HTTPException(status_code=404, detail="Uploaded image not found")
+    
+
+# ---------------------------
+# DELETE uploaded image (also deletes linked Docker images)
+# ---------------------------
+@router.delete("/uploaded/{uploaded_image_id}", status_code=204, summary="Delete uploaded image")
+async def delete_uploaded_image(uploaded_image_id: UUID):
+    try:
+        await image_service.delete_uploaded_image(uploaded_image_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Uploaded image not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting uploaded image: {e}")
+
+
+# ---------------------------
+# DELETE Docker image only (does not touch uploaded tarball)
+# ---------------------------
+@router.delete("/docker/{docker_image_id}", status_code=204, summary="Delete Docker image only")
+async def delete_docker_image(docker_image_id: UUID):
+    try:
+        await image_service.delete_docker_image(docker_image_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Docker image not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting Docker image: {e}")
+
 
 

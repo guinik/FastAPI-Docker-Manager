@@ -1,6 +1,6 @@
 # app/repositories/docker_image_repository.py
 from uuid import UUID
-from sqlalchemy import select, insert, update
+from sqlalchemy import select, insert, update, delete
 from app.core.database import database
 from app.models.db import DockerImageDB
 from app.domain.image import DockerImage
@@ -68,3 +68,10 @@ class SQLDockerImageRepository(DockerImageRepository):
                 is_active=docker_image.is_active,  # <-- update active state
             )
         )
+
+    async def delete(self, image_id: UUID) -> None:
+        """
+        Delete a DockerImage from the DB by its UUID.
+        """
+        query = delete(DockerImageDB).where(DockerImageDB.id == str(image_id))
+        await database.execute(query)

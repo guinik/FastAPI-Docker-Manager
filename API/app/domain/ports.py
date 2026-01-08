@@ -83,6 +83,9 @@ class DockerImageRepository(Protocol):
     
     async def update(self, docker_image: DockerImage) -> None:
         pass
+    
+    async def delete(self, image_id: UUID) -> None:
+        pass
 
 class UploadedImageRepository(Protocol):
     async def get(self, uploaded_image_id: UUID) -> UploadedImage | None:
@@ -95,4 +98,7 @@ class UploadedImageRepository(Protocol):
         pass
 
     async def update(self, uploaded_image: UploadedImage) -> None:
+        pass
+
+    async def delete(self, uploaded_image_id: UUID) -> None:
         pass
