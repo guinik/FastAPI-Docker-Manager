@@ -23,8 +23,7 @@ async def test_create_container_runs_and_sets_status():
     container = await service.create_container(
         image="ubuntu:latest",
         internal_port=80,
-        memory_limit_mb=64,
-        auto_start=True
+        memory_limit_mb=64
     )
 
     # Assertions

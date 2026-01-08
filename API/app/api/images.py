@@ -4,14 +4,17 @@ from fastapi import APIRouter, UploadFile, File, BackgroundTasks, HTTPException
 from app.services.image_service import ImageService
 from app.schemas.image import UploadedImageResponse, DockerImageResponse
 
-from app.repositories.container_repository import SQLContainerRepository
 from app.repositories.image_repository import SQLDockerImageRepository
 from app.repositories.uploaded_image_repository import SQLUploadedImageRepository
 
 from app.services.docker_runtime import DockerSDKRuntime
 
 docker_runtime = DockerSDKRuntime()
-image_service = ImageService(SQLUploadedImageRepository(), SQLDockerImageRepository(), docker_runtime)
+
+
+image_service = ImageService(uploaded_repo=SQLUploadedImageRepository(),
+                            docker_repo=SQLDockerImageRepository(),
+                            docker_runtime=docker_runtime)
 
 
 
@@ -37,7 +40,7 @@ async def upload_image(
 
     # Schedule background Docker load
     if background_tasks:
-        background_tasks.add_task(image_service.load_image, uploaded_image.id)
+        background_tasks.add_task(image_service.load_new_image, uploaded_image.id)
     
     # Although we have ORM i prefer not to.
     return UploadedImageResponse(
@@ -76,7 +79,7 @@ async def list_docker_images():
             name=img.name,
             tag=img.tag,
             docker_id=img.docker_id,
-            status=img.status
+            is_active=img.is_active
         )
         for img in docker_images
     ]
@@ -111,12 +114,11 @@ async def get_docker_image(image_id: UUID):
 
     return DockerImageResponse(
         id=img.id,
-    
         uploaded_image_id = img.uploaded_image_id,
         name=img.name,
         tag=img.tag,
         docker_id=img.docker_id,
-        status=img.status
+        is_active=img.is_active
     )
 
 
@@ -125,35 +127,82 @@ async def get_docker_image(image_id: UUID):
 # Load uploaded image into Docker
 # ---------------------------
 @router.post(
-    "/uploaded/{image_id}/load",
+    "/uploaded/{uploaded_img_id}/load",
     status_code=202,
     summary="Load uploaded image into Docker",
-    description="Loads an already uploaded Docker image tarball into the Docker daemon."
+    description="Loads an already uploaded Docker image tarball into the Docker daemon. If the image is already loaded and active, it returns the existing Docker image."
 )
 async def load_uploaded_image(
-    image_id: UUID,
-    background_tasks: BackgroundTasks
+    uploaded_img_id: UUID
 ):
     try:
-        uploaded_image = await image_service.get_uploaded_image(image_id)
-
-        if uploaded_image.status == "loaded":
-            raise HTTPException(
-                status_code=409,
-                detail="Image is already loaded into Docker"
-            )
-
-        # Run load asynchronously
-        background_tasks.add_task(image_service.load_image, image_id)
-
-        return {
-            "id": image_id,
-            "status": "loading"
-        }
+        # Use the new idempotent service function
+        docker_img = await image_service.load_or_activate_docker_image_uploaded(uploaded_img_id)
+        return DockerImageResponse(
+            id=docker_img.id,
+            uploaded_image_id=docker_img.uploaded_image_id,
+            name=docker_img.name,
+            tag=docker_img.tag,
+            docker_id=docker_img.docker_id,
+            is_active=docker_img.is_active
+        )
 
     except ValueError:
         raise HTTPException(status_code=404, detail="Uploaded image not found")
 
+
+# ---------------------------
+# Load uploaded image into Docker
+# ---------------------------
+@router.post(
+    "/docker/{docker_id}/load",
+    status_code=202,
+    summary="Load uploaded image into Docker",
+    description="Loads an already uploaded Docker image tarball into the Docker daemon. If the image is already loaded and active, it returns the existing Docker image."
+)
+async def load_docker_image(
+    docker_id: UUID
+):
+    try:
+        # Use the new idempotent service function
+        docker_img = await image_service.load_or_activate_docker_image_by_docker_id(docker_id)
+        return DockerImageResponse(
+            id=docker_img.id,
+            uploaded_image_id=docker_img.uploaded_image_id,
+            name=docker_img.name,
+            tag=docker_img.tag,
+            docker_id=docker_img.docker_id,
+            is_active=docker_img.is_active
+        )
+
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Uploaded image not found")
+    
+
+# ---------------------------
+# DELETE uploaded image (also deletes linked Docker images)
+# ---------------------------
+@router.delete("/uploaded/{uploaded_image_id}", status_code=204, summary="Delete uploaded image")
+async def delete_uploaded_image(uploaded_image_id: UUID):
+    try:
+        await image_service.delete_uploaded_image(uploaded_image_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Uploaded image not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting uploaded image: {e}")
+
+
+# ---------------------------
+# DELETE Docker image only (does not touch uploaded tarball)
+# ---------------------------
+@router.delete("/docker/{docker_image_id}", status_code=204, summary="Delete Docker image only")
+async def delete_docker_image(docker_image_id: UUID):
+    try:
+        await image_service.delete_docker_image(docker_image_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Docker image not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting Docker image: {e}")
 
 
 

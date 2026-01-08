@@ -16,7 +16,13 @@ from app.services.docker_runtime import DockerSDKRuntime
 
 docker_runtime = DockerSDKRuntime()
 container_service = ContainerService(SQLContainerRepository(), SQLDockerImageRepository(), docker_runtime)
-image_service = ImageService(SQLUploadedImageRepository(), SQLDockerImageRepository(), docker_runtime)
+
+
+
+
+image_service = ImageService(uploaded_repo=SQLUploadedImageRepository(),
+                            docker_repo=SQLDockerImageRepository(),
+                            docker_runtime=docker_runtime)
 
 
 
@@ -32,7 +38,6 @@ async def create_container(payload: ContainerCreateRequest):
         memory_limit_mb=payload.memory_limit_mb,
         internal_port=payload.internal_port,
         host_port=payload.host_port,
-        auto_start=payload.auto_start,
     )
 
 @router.get("", response_model=List[ContainerResponse])
@@ -59,3 +64,12 @@ async def delete_container(container_id: UUID):
 @router.post("/{container_id}/start", response_model=ContainerResponse)
 async def start_container_endpoint(container_id: UUID):
     return await container_service.start_container(container_id)
+
+
+@router.get("/{container_id}/logs")
+async def get_container_logs(container_id: UUID, tail: int = Query(100, ge=1, le=1000, description="Number of last log lines to fetch")):
+    """
+    Fetch logs from a container.
+    """
+    logs = await container_service.get_container_logs(container_id, tail=tail)
+    return {"container_id": container_id, "logs": logs}

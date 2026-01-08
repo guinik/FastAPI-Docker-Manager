@@ -1,5 +1,6 @@
 from sqlalchemy import (
-    Column, String, Integer, DateTime, ForeignKey, Float
+    Column, String, Integer, DateTime, ForeignKey, Float, UniqueConstraint,
+    Boolean
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
@@ -23,19 +24,23 @@ class DockerImageDB(Base):
     __tablename__ = "docker_images"
 
     id = Column(String, primary_key=True, default=gen_uuid)
-    uploaded_image_id = Column(String, ForeignKey("uploaded_images.id"))
-    name = Column(String, nullable=True)
-    tag = Column(String, default="latest", nullable=True)
-    docker_id = Column(String, nullable=True)
-    replaced_by = Column(String, nullable=True)
-    status = Column(String, default="loaded")  # loaded / failed
+    uploaded_image_id = Column(
+        String,
+        ForeignKey("uploaded_images.id"),
+        nullable=False,
+        unique=True
+    )
+    name = Column(String, nullable=True)        # Docker image name
+    tag = Column(String, nullable=True)         # Docker tag, e.g. "latest"
+    docker_id = Column(String, nullable=False)  # sha256:...
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_active = Column(Boolean, default=False, nullable=False)  # NEW
 
 class ContainerDB(Base):
     __tablename__ = "containers"
 
     id = Column(String, primary_key=True, default=gen_uuid)
-    docker_image_id = Column(String, ForeignKey("docker_images.id"))
+    docker_image_id = Column(String, ForeignKey("docker_images.id"), nullable=True)
     image = Column(String, nullable=False)
     status = Column(String, default="pending")  # pending / running / stopped / failed
     cpu_limit = Column(Float, default=0.5)

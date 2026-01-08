@@ -53,6 +53,9 @@ class DockerRuntime(Protocol):
         """Check if a container exists in Docker."""
         ...
 
+    async def logs(self, container_id: str, tail: int = 100) -> str:
+        """Get the logs from a container"""
+        ...
     # -------------------------------
     # Images
     # -------------------------------
@@ -77,13 +80,12 @@ class DockerImageRepository(Protocol):
 
     async def create(self, docker_image: DockerImage) -> None:
         pass
-
+    
     async def update(self, docker_image: DockerImage) -> None:
         pass
-
-    async def get_active_by_name_tag(self, name: str, tag: str) -> DockerImage | None:
+    
+    async def delete(self, image_id: UUID) -> None:
         pass
-
 
 class UploadedImageRepository(Protocol):
     async def get(self, uploaded_image_id: UUID) -> UploadedImage | None:
@@ -96,4 +98,7 @@ class UploadedImageRepository(Protocol):
         pass
 
     async def update(self, uploaded_image: UploadedImage) -> None:
+        pass
+
+    async def delete(self, uploaded_image_id: UUID) -> None:
         pass

@@ -133,3 +133,18 @@ class DockerSDKRuntime(DockerRuntime):
             return True
         except NotFound:
             return False
+        
+    async def logs(self, docker_id: str, tail: int = 100) -> str:
+        """
+        Fetch logs from a container (non-blocking).
+        """
+        def _get_logs():
+            try:
+                container = self.docker_client.containers.get(docker_id)
+                return container.logs(tail=tail).decode("utf-8")
+            except NotFound:
+                return f"Container {docker_id} not found"
+            except Exception as e:
+                return f"Error fetching logs: {e}"
+
+        return await asyncio.to_thread(_get_logs)

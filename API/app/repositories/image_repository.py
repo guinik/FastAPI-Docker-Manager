@@ -1,10 +1,11 @@
 # app/repositories/docker_image_repository.py
 from uuid import UUID
-from sqlalchemy import select, insert, update
+from sqlalchemy import select, insert, update, delete
 from app.core.database import database
 from app.models.db import DockerImageDB
 from app.domain.image import DockerImage
 from app.domain.ports import DockerImageRepository
+
 
 class SQLDockerImageRepository(DockerImageRepository):
     async def create(self, docker_image: DockerImage) -> None:
@@ -15,8 +16,8 @@ class SQLDockerImageRepository(DockerImageRepository):
                 name=docker_image.name,
                 tag=docker_image.tag,
                 docker_id=docker_image.docker_id,
-                status=docker_image.status,
-                replaced_by = docker_image.replaced_by 
+                created_at=docker_image.created_at,
+                is_active=docker_image.is_active
             )
         )
 
@@ -26,15 +27,15 @@ class SQLDockerImageRepository(DockerImageRepository):
         )
         if not row:
             return None
+
         return DockerImage(
             id=UUID(row["id"]),
             uploaded_image_id=UUID(row["uploaded_image_id"]),
             name=row["name"],
             tag=row["tag"],
             docker_id=row["docker_id"],
-            status=row["status"],
             created_at=row["created_at"],
-            replaced_by = row["replaced_by"]
+            is_active=row["is_active"]
         )
 
     async def list(self) -> list[DockerImage]:
@@ -46,46 +47,31 @@ class SQLDockerImageRepository(DockerImageRepository):
                 name=r["name"],
                 tag=r["tag"],
                 docker_id=r["docker_id"],
-                status=r["status"],
                 created_at=r["created_at"],
-                replaced_by = r["replaced_by"]
+                is_active=r["is_active"]
             )
             for r in rows
         ]
 
     async def update(self, docker_image: DockerImage) -> None:
+        """
+        Update a DockerImage in the DB. Can be used to set `is_active` True/False or
+        update other fields like docker_id.
+        """
         await database.execute(
             update(DockerImageDB)
             .where(DockerImageDB.id == str(docker_image.id))
             .values(
-                name=docker_image.name,
-                tag=docker_image.tag,
                 docker_id=docker_image.docker_id,
-                status=docker_image.status,
-                replaced_by=docker_image.replaced_by,
+                uploaded_image_id=str(docker_image.uploaded_image_id),
+                created_at=docker_image.created_at,
+                is_active=docker_image.is_active,  # <-- update active state
             )
         )
-    async def get_active_by_name_tag(
-        self, name: str, tag: str
-    ) -> DockerImage | None:
-        row = await database.fetch_one(
-            select(DockerImageDB)
-            .where(
-                DockerImageDB.name == name,
-                DockerImageDB.tag == tag,
-                DockerImageDB.status == "loaded",
-            )
-        )
-        if not row:
-            return None
 
-        return DockerImage(
-            id=UUID(row["id"]),
-            uploaded_image_id=UUID(row["uploaded_image_id"]) if row["uploaded_image_id"] else None,
-            name=row["name"],
-            tag=row["tag"],
-            docker_id=row["docker_id"],
-            status=row["status"],
-            replaced_by=row["replaced_by"],
-            created_at=row["created_at"],
-        )
+    async def delete(self, image_id: UUID) -> None:
+        """
+        Delete a DockerImage from the DB by its UUID.
+        """
+        query = delete(DockerImageDB).where(DockerImageDB.id == str(image_id))
+        await database.execute(query)

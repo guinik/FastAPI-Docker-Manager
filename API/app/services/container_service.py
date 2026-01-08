@@ -3,7 +3,7 @@ import asyncio
 from uuid import UUID, uuid4
 from typing import List
 from fastapi import HTTPException
-
+from datetime import datetime, timezone
 from app.domain.container import Container
 from app.domain.ports import ContainerRepository, DockerImageRepository, DockerRuntime
 
@@ -32,8 +32,7 @@ class ContainerService:
         cpu_limit: float = 0.1,
         memory_limit_mb: int = 128,
         internal_port: int = 80,
-        host_port: int | None = None,
-        auto_start: bool = True,
+        host_port: int | None = None
     ) -> Container:
         """
         Create a container from either a raw image string or an uploaded image UUID.
@@ -43,6 +42,9 @@ class ContainerService:
             if not image_container:
                 raise HTTPException(404, "Docker image not found")
             image_ref = image_container.docker_id
+
+            if image_container.is_active == False:
+                raise HTTPException(status_code=409, detail="Docker image is not active")
         else:
             image_ref = image  # raw image string
 
@@ -55,12 +57,12 @@ class ContainerService:
             cpu_limit=cpu_limit,
             memory_limit_mb=memory_limit_mb,
             internal_port=internal_port,
+            created_at = datetime.now(timezone.utc)
         )
 
         await self.container_repository.create(container)
 
-        if auto_start:
-            await self._run_new_container(container, host_port)
+        await self._run_new_container(container, host_port)
 
         return container
 
@@ -82,6 +84,24 @@ class ContainerService:
             await self.docker_runtime.remove(container.docker_id)
 
         await self.container_repository.delete(container_id)
+
+    async def get_container_logs(self, container_id: UUID, tail: int = 100) -> str:
+        """
+        Fetch logs from a running or stopped container.
+        :param container_id: UUID of the container
+        :param tail: number of last lines to fetch
+        :return: logs as a string
+        """
+        container = await self.get_container(container_id)
+
+        if not container.docker_id:
+            raise HTTPException(409, "Container has no Docker runtime ID")
+
+        try:
+            logs = await self.docker_runtime.logs(container.docker_id, tail=tail)
+            return logs
+        except Exception as exc:
+            raise HTTPException(500, f"Failed to fetch logs: {exc}")
 
     # -------------------------------
     # Docker lifecycle

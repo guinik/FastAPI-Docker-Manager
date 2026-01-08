@@ -30,7 +30,7 @@ class DockerImageResponse(BaseModel):
     name: Optional[str] = None
     tag: Optional[str] = None
     docker_id: Optional[str] = None
-    status: Literal["pending", "loaded", "replaced", "failed"]
+    is_active : bool
 
     class Config:
         json_schema_extra = {
@@ -39,6 +39,7 @@ class DockerImageResponse(BaseModel):
                 "name": "myimage",
                 "tag": "latest",
                 "docker_id": "9a0b8c7d6e5f4a3b2c1d0e9f8a7b6c5d",
-                "status": "loaded"
+                "status": "loaded",
+                "is_active" : True
             }
         }

@@ -1,12 +1,8 @@
-import * as React from "react";
+
 import { useState, useRef } from "react";
+import React from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api/client.ts";
-
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   Toast,
   ToastProvider,
@@ -15,9 +11,13 @@ import {
   ToastDescription,
   ToastClose,
 } from "@/components/ui/toast";
-import { Progress } from "@/components/ui/progress";
+import CreateContainerForm  from "@/components/dashboard/container_form.tsx";
+import UploadImageForm from "@/components/dashboard/uploaded_image_form.tsx";
+import UploadedImagesList from "@/components/dashboard/uploaded_image_list.tsx";
+import DockerImagesList from "@/components/dashboard/docker_images_list.tsx";
+import ContainersList from "@/components/dashboard/container_list.tsx";
+import LogsModal from "@/components/dashboard/logs_modal.tsx";
 
-// Form interface
 interface ContainerForm {
   image: string;
   image_id: string;
@@ -25,15 +25,11 @@ interface ContainerForm {
   memory_limit_mb: number;
   internal_port: number;
   host_port: number;
-  auto_start: boolean;
 }
 
 export default function DashboardPage() {
   const qc = useQueryClient();
 
-  // --------------------------
-  // State
-  // --------------------------
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -43,12 +39,17 @@ export default function DashboardPage() {
     cpu_limit: 1,
     memory_limit_mb: 512,
     internal_port: 80,
-    host_port: 8080,
-    auto_start: false,
+    host_port: 8080
   });
 
   const [toasts, setToasts] = useState<{ id: number; title: string; description?: string }[]>([]);
   const toastId = React.useRef(0);
+
+  const [logsModal, setLogsModal] = useState<{ open: boolean; logs: string; containerId: string | null }>({
+    open: false,
+    logs: "",
+    containerId: null,
+  });
 
   const addToast = (title: string, description?: string) => {
     const id = toastId.current++;
@@ -95,71 +96,104 @@ export default function DashboardPage() {
     onError: () => addToast("Error", "Failed to upload image"),
   });
 
-  const loadImage = useMutation({
+  const loadUploadedImage = useMutation({
     mutationFn: (id: string) => api.post(`/images/uploaded/${id}/load`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["uploaded-images"] });
+      qc.invalidateQueries({ queryKey: ["docker-images"] });
       addToast("Load started", "Docker image is loading in background");
     },
     onError: () => addToast("Error", "Failed to load Docker image"),
   });
 
+  const reloadDockerImage = useMutation({
+    mutationFn: (id: string) => api.post(`/images/docker/${id}/load`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["docker-images"] });
+      addToast("Reload started", "Docker image reloading");
+    },
+    onError: () => addToast("Error", "Failed to reload Docker image"),
+  });
+
+  const deleteUploadedImage = useMutation({
+    mutationFn: (id: string) => api.delete(`/images/uploaded/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["uploaded-images"] });
+      qc.invalidateQueries({ queryKey: ["docker-images"] });
+      addToast("Deleted", "Uploaded image deleted");
+    },
+    onError: () => addToast("Error", "Failed to delete uploaded image"),
+  });
+
+  const deleteDockerImage = useMutation({
+    mutationFn: (id: string) => api.delete(`/images/docker/${id}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["docker-images"] });
+      addToast("Deleted", "Docker image deleted");
+    },
+    onError: () => addToast("Error", "Failed to delete Docker image"),
+  });
+
   const createContainer = useMutation({
     mutationFn: (payload: ContainerForm) => {
-    // Ensure mutual exclusivity
-    const body = {
-      ...payload,
-      image: payload.image_id ? null : payload.image,
-      image_id: payload.image ? null : payload.image_id,
-    };
-    return api.post("/containers", body);
-  },
+      const body = {
+        ...payload,
+        image: payload.image_id ? null : payload.image,
+        image_id: payload.image ? null : payload.image_id,
+      };
+      return api.post("/containers", body);
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["containers"] });
-      addToast("Container created", `Container for image ${form.image_id} created`);
+      addToast("Container created", `Container created successfully`);
       setForm({
         image: "",
         image_id: "",
         cpu_limit: 1,
         memory_limit_mb: 512,
         internal_port: 80,
-        host_port: 8080,
-        auto_start: false,
+        host_port: 8080
       });
     },
     onError: () => addToast("Error", "Failed to create container"),
   });
 
   const startContainer = useMutation({
-    mutationFn: (containerId: string) => api.post(`/containers/${containerId}/start`),
-    onSuccess: (_, containerId) => {
+    mutationFn: (id: string) => api.post(`/containers/${id}/start`),
+    onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: ["containers"] });
-      addToast("Container started", `Container ${containerId} started`);
+      addToast("Container started", `Container ${id} started`);
     },
-    onError: (_, containerId) => addToast("Error", `Failed to start container ${containerId}`),
+    onError: (_, id) => addToast("Error", `Failed to start container ${id}`),
   });
 
   const stopContainer = useMutation({
-    mutationFn: (containerId: string) => api.post(`/containers/${containerId}/stop`),
-    onSuccess: (_, containerId) => {
+    mutationFn: (id: string) => api.post(`/containers/${id}/stop`),
+    onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: ["containers"] });
-      addToast("Container stopped", `Container ${containerId} stopped`);
+      addToast("Container stopped", `Container ${id} stopped`);
     },
-    onError: (_, containerId) => addToast("Error", `Failed to stop container ${containerId}`),
+    onError: (_, id) => addToast("Error", `Failed to stop container ${id}`),
   });
 
   const deleteContainer = useMutation({
-    mutationFn: (containerId: string) => api.delete(`/containers/${containerId}`),
-    onSuccess: (_, containerId) => {
+    mutationFn: (id: string) => api.delete(`/containers/${id}`),
+    onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: ["containers"] });
-      addToast("Container deleted", `Container ${containerId} deleted`);
+      addToast("Container deleted", `Container ${id} deleted`);
     },
-    onError: (_, containerId) => addToast("Error", `Failed to delete container ${containerId}`),
+    onError: (_, id) => addToast("Error", `Failed to delete container ${id}`),
   });
 
-  // --------------------------
-  // Handlers
-  // --------------------------
+  const viewLogs = async (id: string) => {
+    try {
+      const res = await api.get(`/containers/${id}/logs`);
+      setLogsModal({ open: true, logs: res.data.logs, containerId: id });
+    } catch (err) {
+      addToast("Error", `Failed to fetch logs for container ${id}`);
+    }
+  };
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) setSelectedFile(e.target.files[0]);
   };
@@ -168,167 +202,73 @@ export default function DashboardPage() {
     if (selectedFile) uploadImage.mutate(selectedFile);
   };
 
+  // --------------------------
+  // Helpers
+  // --------------------------
+  const truncate = (str: string, length = 12) =>
+    str.length > length ? str.slice(0, length) + "..." : str;
+
+  console.log("Rendering containers:", containers)
   return (
     <ToastProvider>
       <div className="flex gap-6 p-6">
-        {/* Sidebar for container form */}
+        {/* Sidebar */}
         <div className="w-80 flex-shrink-0 space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Create Container</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <Input
-                placeholder="Image name"
-                value={form.image}
-                onChange={(e) => setForm({ ...form, image: e.target.value })}
-              />
-              <small className="text-xs text-gray-500">Name of Docker image to use.</small>
-
-              <Input
-                placeholder="Image UUID"
-                value={form.image_id}
-                onChange={(e) => setForm({ ...form, image_id: e.target.value })}
-              />
-              <small className="text-xs text-gray-500">UUID of the uploaded image.</small>
-
-              <Input
-                type="number"
-                placeholder="CPU Limit"
-                value={form.cpu_limit}
-                onChange={(e) => setForm({ ...form, cpu_limit: Number(e.target.value) })}
-              />
-              <small className="text-xs text-gray-500">Number of CPU cores assigned to container.</small>
-
-              <Input
-                type="number"
-                placeholder="Memory (MB)"
-                value={form.memory_limit_mb}
-                onChange={(e) => setForm({ ...form, memory_limit_mb: Number(e.target.value) })}
-              />
-              <small className="text-xs text-gray-500">Max memory for container in MB.</small>
-
-              <Input
-                type="number"
-                placeholder="Internal Port"
-                value={form.internal_port}
-                onChange={(e) => setForm({ ...form, internal_port: Number(e.target.value) })}
-              />
-              <small className="text-xs text-gray-500">Port inside container.</small>
-
-              <Input
-                type="number"
-                placeholder="Host Port"
-                value={form.host_port}
-                onChange={(e) => setForm({ ...form, host_port: Number(e.target.value) })}
-              />
-              <small className="text-xs text-gray-500">Port on your host machine.</small>
-
-              <div className="flex items-center space-x-2">
-                <Input
-                  type="checkbox"
-                  checked={form.auto_start}
-                  onChange={(e) => setForm({ ...form, auto_start: e.target.checked })}
-                />
-                <span>Auto Start</span>
-              </div>
-              <small className="text-xs text-gray-500">Start container automatically after creation.</small>
-
-              <Button onClick={() => createContainer.mutate(form)}>Create Container</Button>
-            </CardContent>
-          </Card>
+          {/* Create Container Form */}
+          <CreateContainerForm
+            form={form}
+            setForm={setForm}
+            dockerImages={dockerImages}
+            onSubmit={() => createContainer.mutate(form)}
+          />
 
           {/* Upload Docker Image */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Upload Docker Image (.tar)</CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <Input
-                type="file"
-                accept=".tar"
-                onChange={handleFileChange}
-                ref={fileInputRef}
-              />
-              <Button disabled={!selectedFile} onClick={handleUpload}>
-                Upload
-              </Button>
-            </CardContent>
-          </Card>
+          <UploadImageForm
+            selectedFile={selectedFile}
+            onFileChange={handleFileChange}
+            onUpload={handleUpload}
+          />
         </div>
 
         {/* Main Content */}
         <div className="flex-1 space-y-6">
-          <h2 className="text-2xl font-semibold">Uploaded Images</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {uploaded.map((img: any) => (
-              <Card key={img.id}>
-                <CardHeader>
-                  <CardTitle className="flex justify-between items-center">
-                    {img.id}
-                    <Badge>{img.status.toUpperCase()}</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="flex flex-col gap-2">
-                  {img.status === "uploaded" && <Button onClick={() => loadImage.mutate(img.id)}>Load</Button>}
-                  {img.status === "loading" && <Progress value={50} />}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {/* Uploaded Images */}
+          <UploadedImagesList
+            uploaded={uploaded}
+            loadUploadedImage={loadUploadedImage}
+            deleteUploadedImage={deleteUploadedImage}
+            truncate={truncate}
+          />
 
-          <h2 className="text-2xl font-semibold">Docker Images</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {dockerImages.map((img: any) => (
-              <Card key={img.id}>
-                <CardHeader>
-                  <CardTitle className="flex justify-between items-center">
-                    {img.id}
-                    <Badge>{img.status.toUpperCase()}</Badge>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div>DOCKER ID: {img.docker_id}</div>
-                  <div>Uploaded ID: {img.uploaded_image_id}</div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
+          {/* Docker Images */}
+          <DockerImagesList
+            dockerImages={dockerImages}
+            reloadDockerImage={reloadDockerImage}
+            deleteDockerImage={deleteDockerImage}
+            truncate={truncate}
+          />
 
-          <h2 className="text-2xl font-semibold">Containers</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {containers.map((c: any) => (
-                <Card key={c.id}>
-                  <CardHeader>
-                    <CardTitle className="flex justify-between items-center">
-                      {c.id}
-                      <Badge>{c.status?.toUpperCase() || "UNKNOWN"}</Badge>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex flex-col gap-2">
-                    <div>Image: {c.image || "N/A"}</div>
-                    <div>Exposed Port: {c.exposed_port || "N/A"}</div>
-                    <div>Created At: {new Date(c.created_at).toLocaleString()}</div>
-                    <div className="flex gap-2 mt-2">
-                      {c.status !== "running" && (
-                        <Button onClick={() => startContainer.mutate(c.id)}>Start</Button>
-                      )}
-                      {c.status === "running" && (
-                        <Button onClick={() => stopContainer.mutate(c.id)}>Stop</Button>
-                      )}
-                      <Button variant="destructive" onClick={() => deleteContainer.mutate(c.id)}>
-                        Delete
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          
+          {/* Containers */}
+          <ContainersList
+            containers={containers}
+            startContainer={startContainer}
+            stopContainer={stopContainer}
+            deleteContainer={deleteContainer}
+            viewLogs={viewLogs}
+            truncate={truncate}
+          />
         </div>
-      </div>
+      </div> {/* <-- THIS CLOSES THE MAIN FLEX CONTAINER */}
 
-      {/* Toast Viewport */}
+      {/* Logs Modal */}
+      <LogsModal
+        open={logsModal.open}
+        logs={logsModal.logs}
+        containerId={logsModal.containerId}
+        onClose={() => setLogsModal({ open: false, logs: "", containerId: null })}
+      />
+
+      {/* Toasts */}
       <ToastViewport>
         {toasts.map((t) => (
           <Toast key={t.id}>
@@ -340,4 +280,5 @@ export default function DashboardPage() {
       </ToastViewport>
     </ToastProvider>
   );
+
 }
