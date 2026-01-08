@@ -80,7 +80,7 @@ npm run dev
 
 * UI runs by default on: **[http://localhost:5173](http://localhost:5173)**
 
-![UI Screenshot](ui/screenshot.png)
+![UI Screenshot](assets/screenshot.png)
 
 ---
 
