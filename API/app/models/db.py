@@ -40,7 +40,7 @@ class ContainerDB(Base):
     __tablename__ = "containers"
 
     id = Column(String, primary_key=True, default=gen_uuid)
-    docker_image_id = Column(String, ForeignKey("docker_images.id"))
+    docker_image_id = Column(String, ForeignKey("docker_images.id"), nullable=True)
     image = Column(String, nullable=False)
     status = Column(String, default="pending")  # pending / running / stopped / failed
     cpu_limit = Column(Float, default=0.5)

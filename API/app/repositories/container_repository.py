@@ -22,6 +22,7 @@ class SQLContainerRepository(ContainerRepository):
                 internal_port=container.internal_port,
                 exposed_port=container.exposed_port,
                 docker_id=container.docker_id,
+                created_at=container.created_at
             )
         )
 
@@ -45,6 +46,7 @@ class SQLContainerRepository(ContainerRepository):
             internal_port=row["internal_port"],
             exposed_port=row["exposed_port"],
             docker_id=row["docker_id"],
+            created_at=row["created_at"]
         )
 
     async def list(self) -> list[Container]:
@@ -63,6 +65,7 @@ class SQLContainerRepository(ContainerRepository):
                 internal_port=r["internal_port"],
                 exposed_port=r["exposed_port"],
                 docker_id=r["docker_id"],
+                created_at=r["created_at"]
             )
             for r in rows
         ]

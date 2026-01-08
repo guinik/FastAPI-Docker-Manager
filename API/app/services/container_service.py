@@ -3,7 +3,7 @@ import asyncio
 from uuid import UUID, uuid4
 from typing import List
 from fastapi import HTTPException
-
+from datetime import datetime, timezone
 from app.domain.container import Container
 from app.domain.ports import ContainerRepository, DockerImageRepository, DockerRuntime
 
@@ -32,8 +32,7 @@ class ContainerService:
         cpu_limit: float = 0.1,
         memory_limit_mb: int = 128,
         internal_port: int = 80,
-        host_port: int | None = None,
-        auto_start: bool = True,
+        host_port: int | None = None
     ) -> Container:
         """
         Create a container from either a raw image string or an uploaded image UUID.
@@ -58,12 +57,12 @@ class ContainerService:
             cpu_limit=cpu_limit,
             memory_limit_mb=memory_limit_mb,
             internal_port=internal_port,
+            created_at = datetime.now(timezone.utc)
         )
 
         await self.container_repository.create(container)
 
-        if auto_start:
-            await self._run_new_container(container, host_port)
+        await self._run_new_container(container, host_port)
 
         return container
 

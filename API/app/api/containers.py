@@ -38,7 +38,6 @@ async def create_container(payload: ContainerCreateRequest):
         memory_limit_mb=payload.memory_limit_mb,
         internal_port=payload.internal_port,
         host_port=payload.host_port,
-        auto_start=payload.auto_start,
     )
 
 @router.get("", response_model=List[ContainerResponse])

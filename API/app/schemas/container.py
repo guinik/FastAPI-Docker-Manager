@@ -11,7 +11,6 @@ class ContainerCreateRequest(BaseModel):
     host_port: Optional[int] = None
     cpu_limit: float = 0.5
     memory_limit_mb: int = 128
-    auto_start: bool = True
 
     @model_validator(mode="after")
     def validate_image_source(self):
@@ -27,6 +26,6 @@ class ContainerResponse(BaseModel):
     id: UUID
     image: str
     status: Literal["pending", "running", "stopped", "failed"]
-    docker_image_id : UUID
+    docker_image_id : Optional[UUID]
     exposed_port: Optional[int]
     created_at: datetime
